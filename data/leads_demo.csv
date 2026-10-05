@@ -1,0 +1,13 @@
+lead_id,industry,company_size,pages_visited,session_duration,form_submitted,pricing_page_visited,solution_page_visited,email_opened,previous_interactions,converted
+L001,SaaS,51-200,8,420,1,1,1,1,4,1
+L002,Retail,1-50,2,90,0,0,1,0,1,0
+L003,Finance,201-500,7,360,1,1,1,1,3,1
+L004,Education,51-200,3,130,0,0,1,1,1,0
+L005,Healthcare,501-1000,9,510,1,1,1,1,5,1
+L006,Manufacturing,51-200,4,210,1,0,1,0,2,0
+L007,SaaS,1-50,6,300,1,1,1,1,2,1
+L008,Media,1-50,1,45,0,0,0,0,0,0
+L009,Finance,51-200,5,270,1,1,0,1,3,1
+L010,Retail,201-500,3,140,0,0,1,0,1,0
+L011,SaaS,501-1000,10,600,1,1,1,1,6,1
+L012,Education,1-50,2,80,0,0,1,0,1,0

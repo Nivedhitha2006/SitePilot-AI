@@ -1,0 +1,4 @@
+date,users,sessions,pageviews,bounce_rate,engagement_rate,traffic_source,page,conversions
+2026-09-01,120,150,420,0.42,0.58,organic,/home,4
+2026-09-02,145,175,510,0.39,0.61,organic,/pricing,7
+2026-09-03,132,160,480,0.41,0.59,referral,/solutions,5
