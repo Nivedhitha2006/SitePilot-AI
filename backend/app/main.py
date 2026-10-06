@@ -1,7 +1,7 @@
 import os, json, uuid, re, statistics
 from collections import Counter
 from urllib.parse import urlparse, quote_plus, parse_qs, urljoin
-from google import genai
+
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
@@ -782,153 +782,95 @@ def _extra_recommendations(
 
     return out
 
-# ---------------------------------------------------------
-# Gemini website-name resolver
-# ---------------------------------------------------------
 
-GEMINI_API_KEY = os.getenv("LLM_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("LLM_MODEL", "gemini-3.8-flash").strip()
-
-gemini_client = None
-
-if GEMINI_API_KEY:
-    try:
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-    except Exception as e:
-        print("Gemini initialization failed:", e)
-
-
-def _resolve_with_gemini(site_name: str):
-    if not gemini_client:
-        return None
-
-    prompt = f"""
-Find the official public website for this organization, company,
-college, university, institution, or website name:
-
-{site_name}
-
-Use Google Search.
-
-Rules:
-1. Return only the official homepage URL.
-2. Do not return Facebook, Instagram, LinkedIn, YouTube, Wikipedia,
-   Justdial, IndiaMART, directories, review sites, or other third-party pages.
-3. Prefer the organization's own official domain.
-4. If you cannot identify a reliable official website, return NONE.
-"""
-
-    try:
-        interaction = gemini_client.interactions.create(
-            model=GEMINI_MODEL,
-            input=prompt,
-            tools=[{"type": "google_search"}],
-        )
-
-        text = getattr(interaction, "output_text", "") or ""
-
-        urls = re.findall(
-            r'https?://[^\s<>"\'\]\[)]+',
-            text
-        )
-
-        blocked_domains = {
-            "facebook.com",
-            "instagram.com",
-            "linkedin.com",
-            "youtube.com",
-            "wikipedia.org",
-            "justdial.com",
-            "indiamart.com",
-            "twitter.com",
-            "x.com",
-        }
-
-        for candidate in urls:
-            candidate = candidate.rstrip(".,;:)]}")
-
-            try:
-                parsed = urlparse(candidate)
-                host = (parsed.hostname or "").lower()
-
-                if not host:
-                    continue
-
-                if any(
-                    host == d or host.endswith("." + d)
-                    for d in blocked_domains
-                ):
-                    continue
-
-                safe_url(candidate)
-
-                return candidate
-
-            except Exception:
-                continue
-
-        return None
-
-    except Exception as e:
-        print("Gemini website resolver error:", e)
-        return None
 # =========================================================
 # WEBSITE RESOLUTION
 # =========================================================
 
-@app.get('/api/resolve-site')
-def resolve_site(q: str = Query(..., min_length=2, max_length=200)):
+@app.get("/api/resolve-site")
+def resolve_site(
+    q: str = Query(
+        ...,
+        min_length=2,
+        max_length=200
+    )
+):
     q = q.strip()
 
-    # 1. Direct URL
-    if re.match(r'^https?://', q, re.I):
+    # Deterministic aliases make voice input reliable
+    # for common site names.
+    aliases = {
+        "velammal engineering college":
+            "https://velammal.edu.in/",
+        "velammal college":
+            "https://velammal.edu.in/",
+        "velammal engineering":
+            "https://velammal.edu.in/",
+        "velammal":
+            "https://velammal.edu.in/",
+    }
+
+    alias = aliases.get(
+        re.sub(
+            r"[^a-z0-9 ]+",
+            " ",
+            q.lower()
+        ).strip()
+    )
+
+    if alias:
+        return {
+            "query": q,
+            "url": alias,
+            "source": "known public-site alias",
+        }
+
+    if re.match(
+        r"^https?://",
+        q,
+        re.I
+    ):
         try:
             return {
-                'query': q,
-                'url': safe_url(q),
-                'source': 'direct'
+                "query": q,
+                "url": safe_url(q),
+                "source": "direct",
             }
         except Exception as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(
+                400,
+                str(e)
+            )
 
-    # 2. Domain entered without https://
-    if re.match(r'^[\w.-]+\.[A-Za-z]{2,}(/.*)?$', q):
-        u = 'https://' + q
+    if re.match(
+        r"^[\w.-]+\.[A-Za-z]{2,}(/.*)?$",
+        q
+    ):
+        u = "https://" + q
 
         try:
             safe_url(u)
 
             return {
-                'query': q,
-                'url': u,
-                'source': 'domain heuristic'
+                "query": q,
+                "url": u,
+                "source": "domain heuristic",
             }
 
         except Exception:
             pass
 
-    # 3. Gemini + Google Search
-    gemini_url = _resolve_with_gemini(q)
-
-    if gemini_url:
-        return {
-            'query': q,
-            'url': gemini_url,
-            'source': 'gemini google search'
-        }
-
-    # 4. Existing public-search fallback
     headers = {
-        'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-        'AppleWebKit/537.36 Chrome/126 Safari/537.36'
+        "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 Chrome/126 Safari/537.36"
     }
 
     candidates = []
 
     for engine in [
-        f'https://www.google.com/search?q={quote_plus(q)}',
-        f'https://html.duckduckgo.com/html/?q={quote_plus(q)}'
+        f"https://www.google.com/search?q={quote_plus(q)}",
+        f"https://html.duckduckgo.com/html/?q={quote_plus(q)}",
     ]:
         try:
             r = requests.get(
@@ -937,27 +879,46 @@ def resolve_site(q: str = Query(..., min_length=2, max_length=200)):
                 timeout=8
             )
 
-            soup = BeautifulSoup(r.text, 'html.parser')
+            soup = BeautifulSoup(
+                r.text,
+                "html.parser"
+            )
 
-            for a in soup.find_all('a', href=True):
-                href = a.get('href', '')
+            for a in soup.find_all(
+                "a",
+                href=True
+            ):
+                href = a.get(
+                    "href",
+                    ""
+                )
 
                 if (
-                    'google.' in urlparse(href).netloc.lower()
+                    "google." in
+                    urlparse(href).netloc.lower()
                     or
-                    'duckduckgo.' in urlparse(href).netloc.lower()
+                    "duckduckgo." in
+                    urlparse(href).netloc.lower()
                 ):
                     continue
 
-                if href.startswith('/url?'):
+                if href.startswith("/url?"):
                     href = parse_qs(
                         urlparse(href).query
-                    ).get('q', [''])[0]
+                    ).get(
+                        "q",
+                        [""]
+                    )[0]
 
-                if href.startswith('//'):
-                    href = 'https:' + href
+                if href.startswith("//"):
+                    href = "https:" + href
 
-                if href.startswith(('http://', 'https://')):
+                if href.startswith(
+                    (
+                        "http://",
+                        "https://"
+                    )
+                ):
                     candidates.append(href)
 
             if candidates:
@@ -966,48 +927,40 @@ def resolve_site(q: str = Query(..., min_length=2, max_length=200)):
         except Exception:
             continue
 
-    blocked_domains = {
-        'facebook.com',
-        'instagram.com',
-        'youtube.com',
-        'linkedin.com',
-        'x.com',
-        'twitter.com',
-        'wikipedia.org',
-        'justdial.com',
-        'indiamart.com',
-    }
-
-    for candidate in candidates:
+    for c in candidates:
         try:
-            p = urlparse(candidate)
-            host = (p.hostname or '').lower()
+            p = urlparse(c)
 
-            if not host:
-                continue
-
-            if any(
-                host == d or host.endswith("." + d)
-                for d in blocked_domains
+            if (
+                p.hostname
+                and p.hostname.lower()
+                not in (
+                    "facebook.com",
+                    "instagram.com",
+                    "youtube.com",
+                    "linkedin.com",
+                    "x.com",
+                    "twitter.com",
+                    "wikipedia.org",
+                )
             ):
-                continue
+                safe_url(c)
 
-            safe_url(candidate)
-
-            return {
-                'query': q,
-                'url': candidate.split('#')[0],
-                'source': 'public search'
-            }
+                return {
+                    "query": q,
+                    "url": c.split("#")[0],
+                    "source": "public search",
+                }
 
         except Exception:
             continue
 
     raise HTTPException(
         404,
-        'Could not resolve that name to a public website. '
-        'Try saying the website URL or type the domain.'
+        "Could not resolve that name to a public website. "
+        "Try saying the website URL or type the domain."
     )
+
 
 # =========================================================
 # WEBSITE ANALYSIS
